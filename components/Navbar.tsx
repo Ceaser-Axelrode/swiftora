@@ -27,7 +27,7 @@ export default function Navbar() {
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6">
         <Link href="/" className="flex items-center gap-3">
           <Image
-            src="/HomePageLogo.png"
+            src="/homePageLogo.png"
             alt="Swiftora Solutions"
             width={48}
             height={48}
