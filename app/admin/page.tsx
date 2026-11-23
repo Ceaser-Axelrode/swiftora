@@ -1,10 +1,10 @@
 'use client';
 
 import { supabase } from '@/lib/supabase';
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { generateTrackingId } from '@/lib/generateTrackingId';
+import { generateUniqueTrackingId } from '@/lib/generateUniqueTrackingId';
 import {
   Plus,
   MapPin,
@@ -15,7 +15,28 @@ import {
   AlertCircle,
   CheckCircle,
   Loader2,
+  Users,
+  Mail,
+  RefreshCw,
 } from 'lucide-react';
+
+type ProfileRow = {
+  id: string;
+  user_id: string;
+  role: string;
+  full_name: string | null;
+  phone: string | null;
+  created_at: string;
+};
+
+type SubscriberRow = {
+  id: string;
+  email: string;
+  name: string | null;
+  subscribed_at: string;
+  is_active: boolean;
+  source: string | null;
+};
 
 export default function AdminPage() {
   const [sender, setSender] = useState('');
@@ -31,6 +52,14 @@ export default function AdminPage() {
   const [lookupLoading, setLookupLoading] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState('Processing');
 
+  const [profiles, setProfiles] = useState<ProfileRow[]>([]);
+  const [subscribers, setSubscribers] = useState<SubscriberRow[]>([]);
+  const [directoryLoading, setDirectoryLoading] = useState(false);
+  const [directoryError, setDirectoryError] = useState('');
+  const [updatingSubscriberId, setUpdatingSubscriberId] = useState<
+    string | null
+  >(null);
+
   const [notification, setNotification] = useState<{
     type: 'success' | 'error';
     message: string;
@@ -38,17 +67,48 @@ export default function AdminPage() {
 
   const router = useRouter();
 
+  const loadDirectory = useCallback(async () => {
+    setDirectoryLoading(true);
+    setDirectoryError('');
+
+    const [profilesResult, subscribersResult] = await Promise.all([
+      supabase
+        .from('profiles')
+        .select('id,user_id,role,full_name,phone,created_at')
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('newsletter_subscribers')
+        .select('id,email,name,subscribed_at,is_active,source')
+        .order('subscribed_at', { ascending: false })
+        .limit(100),
+    ]);
+
+    if (profilesResult.error || subscribersResult.error) {
+      setDirectoryError(
+        profilesResult.error?.message ||
+          subscribersResult.error?.message ||
+          'Unable to load profiles and subscribers.',
+      );
+    }
+
+    setProfiles((profilesResult.data as ProfileRow[] | null) ?? []);
+    setSubscribers((subscribersResult.data as SubscriberRow[] | null) ?? []);
+    setDirectoryLoading(false);
+  }, []);
+
   useEffect(() => {
     const checkUser = async () => {
       const { data } = await supabase.auth.getUser();
       if (!data.user) {
         router.push('/login');
-      } else {
-        setLoading(false);
+        return;
       }
+
+      setLoading(false);
+      await loadDirectory();
     };
     checkUser();
-  }, [router]);
+  }, [router, loadDirectory]);
 
   async function lookupShipment() {
     if (!trackingId) {
@@ -103,7 +163,7 @@ export default function AdminPage() {
     }
 
     setSubmitting(true);
-    const tracking = generateTrackingId();
+    const tracking = await generateUniqueTrackingId(supabase);
 
     const { data: shipment, error } = await supabase
       .from('shipments')
@@ -204,6 +264,47 @@ export default function AdminPage() {
 
     setTimeout(() => setNotification(null), 5000);
   }
+
+  async function toggleSubscriber(subscriber: SubscriberRow) {
+    setUpdatingSubscriberId(subscriber.id);
+
+    const nextActive = !subscriber.is_active;
+    const { error } = await supabase
+      .from('newsletter_subscribers')
+      .update({
+        is_active: nextActive,
+        unsubscribed_at: nextActive ? null : new Date().toISOString(),
+      })
+      .eq('id', subscriber.id);
+
+    if (error) {
+      setNotification({
+        type: 'error',
+        message: `Failed to update subscriber: ${error.message}`,
+      });
+    } else {
+      setSubscribers((current) =>
+        current.map((row) =>
+          row.id === subscriber.id
+            ? { ...row, is_active: nextActive }
+            : row,
+        ),
+      );
+      setNotification({
+        type: 'success',
+        message: nextActive
+          ? `${subscriber.email} reactivated`
+          : `${subscriber.email} unsubscribed`,
+      });
+      setTimeout(() => setNotification(null), 5000);
+    }
+
+    setUpdatingSubscriberId(null);
+  }
+
+  const activeSubscribers = subscribers.filter(
+    (subscriber) => subscriber.is_active,
+  ).length;
 
   return (
     <main className="min-h-screen bg-background pt-24 pb-12 px-4 sm:px-6 lg:px-8">
@@ -465,6 +566,164 @@ export default function AdminPage() {
               </button>
             </div>
           </motion.div>
+        </div>
+
+        {/* Profiles + Newsletter */}
+        <div className="mt-8">
+          {directoryError && (
+            <div className="mb-6 flex items-center gap-3 rounded-xl border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">
+              <AlertCircle className="w-5 h-5 shrink-0" />
+              <span>{directoryError}</span>
+            </div>
+          )}
+
+          <div className="grid gap-8 lg:grid-cols-2">
+            {/* Profiles */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+              className="bg-card border border-border rounded-2xl p-6 shadow-sm"
+            >
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                    <Users className="w-5 h-5 text-primary" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-semibold text-foreground">
+                      Profiles
+                    </h2>
+                    <p className="text-sm text-muted-foreground">
+                      {profiles.length} admin account
+                      {profiles.length === 1 ? '' : 's'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={loadDirectory}
+                  disabled={directoryLoading}
+                  className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition disabled:opacity-50"
+                  aria-label="Refresh profiles and subscribers"
+                >
+                  <RefreshCw
+                    className={`w-4 h-4 ${directoryLoading ? 'animate-spin' : ''}`}
+                  />
+                </button>
+              </div>
+
+              {directoryLoading && profiles.length === 0 ? (
+                <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Loading profiles...
+                </div>
+              ) : profiles.length === 0 ? (
+                <p className="py-6 text-sm text-muted-foreground">
+                  No profiles yet. New auth users get one automatically.
+                </p>
+              ) : (
+                <ul className="divide-y divide-border">
+                  {profiles.map((profile) => (
+                    <li
+                      key={profile.id}
+                      className="flex items-center justify-between gap-3 py-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-foreground">
+                          {profile.full_name || 'Unnamed user'}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {profile.phone || profile.user_id}
+                        </p>
+                      </div>
+                      <span className="shrink-0 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold capitalize text-primary">
+                        {profile.role}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </motion.div>
+
+            {/* Newsletter */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4 }}
+              className="bg-card border border-border rounded-2xl p-6 shadow-sm"
+            >
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                    <Mail className="w-5 h-5 text-primary" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-semibold text-foreground">
+                      Newsletter
+                    </h2>
+                    <p className="text-sm text-muted-foreground">
+                      {activeSubscribers} active / {subscribers.length} total
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {directoryLoading && subscribers.length === 0 ? (
+                <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Loading subscribers...
+                </div>
+              ) : subscribers.length === 0 ? (
+                <p className="py-6 text-sm text-muted-foreground">
+                  No subscribers yet. Signups from the footer will appear here.
+                </p>
+              ) : (
+                <ul className="max-h-80 divide-y divide-border overflow-y-auto">
+                  {subscribers.map((subscriber) => (
+                    <li
+                      key={subscriber.id}
+                      className="flex items-center justify-between gap-3 py-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-foreground">
+                          {subscriber.email}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {subscriber.name
+                            ? `${subscriber.name} · `
+                            : ''}
+                          {subscriber.source || 'footer'} ·{' '}
+                          {new Date(subscriber.subscribed_at)
+                            .toISOString()
+                            .slice(0, 10)}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => toggleSubscriber(subscriber)}
+                        disabled={updatingSubscriberId === subscriber.id}
+                        title={
+                          subscriber.is_active
+                            ? 'Click to unsubscribe'
+                            : 'Click to reactivate'
+                        }
+                        className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold transition disabled:opacity-50 ${
+                          subscriber.is_active
+                            ? 'bg-green-500/10 text-green-500 hover:bg-green-500/20'
+                            : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                        }`}
+                      >
+                        {updatingSubscriberId === subscriber.id
+                          ? '...'
+                          : subscriber.is_active
+                            ? 'Active'
+                            : 'Inactive'}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </motion.div>
+          </div>
         </div>
       </div>
     </main>

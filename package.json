@@ -1,14 +1,17 @@
 {
-  "name": "berlux-transit-solutions",
+  "name": "swiftora-solutions",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "dev:clean": "npm run clean && next dev",
+    "inngest:dev": "npx inngest-cli@latest dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "verify:db": "node scripts/verify-db.mjs",
+    "db:apply": "node scripts/apply-migrations.mjs",
     "clean": "node scripts/clean.mjs"
   },
   "dependencies": {
@@ -17,6 +20,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^12.31.0",
+    "inngest": "^4.26.2",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.563.0",
     "next": "16.1.6",

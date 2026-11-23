@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { useTheme } from '@/lib/ThemeContext';
 import {
@@ -9,6 +10,8 @@ import {
   FaWhatsapp,
   FaSun,
   FaMoon,
+  FaPaperPlane,
+  FaCheckCircle,
 } from 'react-icons/fa';
 
 const socials = [
@@ -36,6 +39,48 @@ const socials = [
 
 export default function Footer() {
   const { theme, toggleTheme } = useTheme();
+  const [email, setEmail] = useState('');
+  const [subscribeStatus, setSubscribeStatus] = useState<
+    'idle' | 'loading' | 'success' | 'error'
+  >('idle');
+  const [subscribeMessage, setSubscribeMessage] = useState('');
+
+  async function handleSubscribe(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const trimmed = email.trim();
+    if (!trimmed) return;
+
+    setSubscribeStatus('loading');
+    setSubscribeMessage('');
+
+    try {
+      const res = await fetch('/api/newsletter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: trimmed, source: 'footer' }),
+      });
+      const body = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(
+          body?.error || 'Subscription failed. Please try again.',
+        );
+      }
+
+      setSubscribeStatus('success');
+      setSubscribeMessage(
+        'You are subscribed. Watch your inbox for a welcome email.',
+      );
+      setEmail('');
+    } catch (error) {
+      setSubscribeStatus('error');
+      setSubscribeMessage(
+        error instanceof Error
+          ? error.message
+          : 'Something went wrong. Please try again.',
+      );
+    }
+  }
 
   return (
     <footer
@@ -134,6 +179,75 @@ export default function Footer() {
                 </a>
               ))}
             </div>
+          </div>
+        </div>
+
+        <div className="border-t border-white/10 bg-black/30">
+          <div className="mx-auto flex max-w-6xl flex-col gap-5 p-6 md:flex-row md:items-center md:justify-between md:p-10">
+            <div className="max-w-md">
+              <h3 className="text-lg font-semibold text-orange-400">
+                Stay in the loop
+              </h3>
+              <p className="mt-1 text-sm text-gray-200">
+                Shipping tips, service updates, and logistics news from
+                Swiftora. No spam.
+              </p>
+            </div>
+
+            <form
+              onSubmit={handleSubscribe}
+              className="w-full max-w-md"
+              aria-label="Newsletter signup"
+            >
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <label htmlFor="newsletter-email" className="sr-only">
+                  Email address
+                </label>
+                <input
+                  id="newsletter-email"
+                  type="email"
+                  name="email"
+                  autoComplete="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled={subscribeStatus === 'loading'}
+                  placeholder="you@example.com"
+                  className="w-full flex-1 rounded-xl border border-white/20 bg-white/5 px-4 py-3 text-gray-100 placeholder:text-gray-400 transition focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-400/30 disabled:opacity-60"
+                />
+                <button
+                  type="submit"
+                  disabled={subscribeStatus === 'loading'}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-500 px-5 py-3 font-semibold text-white transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {subscribeStatus === 'loading' ? (
+                    'Subscribing...'
+                  ) : (
+                    <>
+                      <FaPaperPlane className="h-4 w-4" />
+                      Subscribe
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {subscribeMessage && (
+                <p
+                  role="status"
+                  aria-live="polite"
+                  className={`mt-2 flex items-center gap-2 text-sm ${
+                    subscribeStatus === 'success'
+                      ? 'text-green-400'
+                      : 'text-red-300'
+                  }`}
+                >
+                  {subscribeStatus === 'success' && (
+                    <FaCheckCircle className="h-4 w-4" />
+                  )}
+                  {subscribeMessage}
+                </p>
+              )}
+            </form>
           </div>
         </div>
 
